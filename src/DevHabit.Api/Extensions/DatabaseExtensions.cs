@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DevHabit.Api.Extensions;
 
-public static class DaatabaseExtensions
+public static class DatabaseExtensions
 {
     public static async Task ApplyMigrationsAsync(this WebApplication app)
     {
