@@ -1,7 +1,9 @@
-﻿using System.Linq.Expressions;
+﻿using System.Linq.Dynamic.Core;
 using DevHabit.Api.Database;
+using DevHabit.Api.DTOs.Common;
 using DevHabit.Api.DTOs.Habits;
 using DevHabit.Api.Entities;
+using DevHabit.Api.Services.Sorting;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.JsonPatch;
@@ -22,19 +24,37 @@ public sealed class HabitsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<HabitsCollectionDto>> GetHabits()
+    public async Task<ActionResult<PaginationResult<HabitDto>>> GetHabits(
+        [FromQuery] HabitsQueryParameters query,
+        SortMappingProvider sortMappingProvider)
     {
-        List<HabitDto> habits = await _dbContext
-            .Habits
-            .Select(HabitQueries.ProjectToDto())
-            .ToListAsync();
-
-        var habitsCollection = new HabitsCollectionDto
+        if(!sortMappingProvider.ValidateMapping<HabitDto, Habit>(query.Sort))
         {
-            Data = habits
-        };
+            return Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                detail: $"The provided sort parameter isn't valid: {query.Sort}");
+        }
 
-        return Ok(habitsCollection);
+        query.Search ??= query.Search?.Trim().ToLower();
+
+        SortMapping[] sortMappings = sortMappingProvider.GetMappings<HabitDto, Habit>();
+
+        IQueryable<HabitDto> habitsQuery = _dbContext.Habits
+            .Where(h =>
+                query.Search == null ||
+                h.Name.ToLower().Contains(query.Search) ||
+                h.Description != null && h.Description.ToLower().Contains(query.Search))
+            .Where(h => query.Type == null || h.Type == query.Type)
+            .Where(h => query.Status == null || h.Status == query.Status)
+            .ApplySort(query.Sort, sortMappings)
+            .Select(HabitQueries.ProjectToDto());
+        
+        var paginationResult = await PaginationResult<HabitDto>.CreateAsync(
+            habitsQuery,
+            query.Page,
+            query.PageSize);
+
+        return Ok(paginationResult);
     }
 
     [HttpGet("{id}")]
